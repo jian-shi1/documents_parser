@@ -4,15 +4,17 @@ import argparse
 from constants import file_formats, archieve_formats, wordlist_filename
 from docx import Document
 from numpy.random import choice, randint
+import pandas as pd
 from string import ascii_uppercase
+import xlwt
 
 
 class DocumentGenerator:
     _max_words_name = 3
     _max_paragraphs = 100
     _max_paragraph_words = 500
-    _max_columns = 100
-    _max_rows = 1000
+    _max_columns = 10
+    _max_rows = 100
     _max_doc_num = 1
     _max_docx_num = 1
     _max_xls_num = 1
@@ -56,7 +58,7 @@ class DocumentGenerator:
 
     def _gen_title(self, idx, ext):
         num_words_in_title = randint(1, self._max_words_name + 1)
-        s = '_'.join(self._gen_wordlist(num_words_in_title)) + ext
+        s = '_'.join(self._gen_wordlist(num_words_in_title)) + str(idx) + ext
         while s in self.banwords:
             s = '_'.join(self._gen_wordlist(num_words_in_title)) + ext
         self.banwords.add(s)
@@ -65,15 +67,36 @@ class DocumentGenerator:
     def _generate_doc(self, num, ext):
         for i in range(num):
             doc = Document()
-            name = os.path.join( self.workdir, self._gen_title(i, ext))
+            name = os.path.join(self.workdir, self._gen_title(i, ext))
             num_pars = randint(1, self._max_paragraphs+1)
             for _ in range(num_pars):
                 doc.add_paragraph(self._gen_paragraph())
             doc.save(name)
-            print(f"created {name}")
 
-    def _generate_xls(self, num, ext):
-        raise NotImplementedError  # TODO
+    def _generate_xls(self, num):
+        ext = ".xls"
+        for filenum in range(num):
+            name = os.path.join(self.workdir, self._gen_title(filenum, ext))
+            rows_num = randint(1, self._max_rows)
+            cols_num = randint(1, self._max_columns)
+            wb = xlwt.Workbook()
+            ws = wb.add_sheet('Sheet 1')
+            for i in range(rows_num):
+                for j in range(cols_num):
+                    ws.write(i, j, self._gen_paragraph())
+            wb.save(name)
+
+    def _generate_xlsx(self, num):
+        ext = ".xlsx"
+        for i in range(num):
+            name = os.path.join(self.workdir, self._gen_title(i, ext))
+            rows_num = randint(1, self._max_rows)
+            cols_num = randint(1, self._max_columns)
+            init_dict = {}
+            for colname in self._gen_wordlist(cols_num):
+                init_dict[colname] = self._gen_wordlist(rows_num)
+            df = pd.DataFrame(init_dict)
+            df.to_excel(name, index=False)
 
     def _generate_pdf(self, num):
         raise NotImplementedError  # TODO
@@ -87,8 +110,9 @@ class DocumentGenerator:
         existing_filenames = set(existing_filenames)
         self._generate_doc(doc_num, ".doc")
         self._generate_doc(docx_num, ".docx")
-        # self._generate_xls(xls_num, ".xls")
-        # self._generate_xls(xlsx_num, ".xlsx")
+        self._generate_xlsx(xlsx_num)
+        self._generate_xls(xls_num)
+
         # self._generate_pdf(pdf_num)
         # TODO: generate archieves with recursion possibility
 
