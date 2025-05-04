@@ -2,53 +2,87 @@ import os
 import sys
 import argparse
 from constants import file_formats, archieve_formats, wordlist_filename
-from docx import Document
+import docx
 from numpy.random import choice, randint
 import pandas as pd
 from string import ascii_uppercase
 import xlwt
+from borb.pdf import Document, Page, Paragraph, SingleColumnLayout, PDF
+import py7zr
+from pathlib import Path
+import zipfile
+from shutil import rmtree
+import subprocess
 
 
 class DocumentGenerator:
+    # Лимиты на наполнение файлов
     _max_words_name = 3
     _max_paragraphs = 100
     _max_paragraph_words = 500
     _max_columns = 10
     _max_rows = 100
+    # Лимиты на количество файлов
     _max_doc_num = 1
     _max_docx_num = 1
     _max_xls_num = 1
     _max_xlsx_num = 1
     _max_pdf_num = 1
-    _max_depth = 2
-    _max_zip = 1
-    _max_7zip = 1
-    _max_rar = 1
+    _max_zip_num = 1
+    _max_7zip_num = 1
+    _max_rar_num = 1
 
     banwords = set()
     word_bank = set()
     all_formats = set()
-    workdir = ''
 
-    def __init__(self, dir):
-        self.workdir = dir
-        self.all_formats = file_formats | archieve_formats
+    def archieve_zip(workdir):
+        sp = os.path.split(workdir)
+        last_wd = sp[-1]
+        with zipfile.ZipFile(f"{workdir}.zip", mode="w") as archive:
+            for file_path in Path(workdir).iterdir():
+                archive.write(file_path, arcname=file_path.name)
+
+    def archieve_rar(workdir):
+        sp = os.path.split(workdir)
+        current_dir = Path(__file__).parent.absolute()
+        last_wd = sp[-1]
+        documents_dir = current_dir / sp[-2]
+        dir_path = documents_dir / last_wd
+        rar_path = documents_dir / f"{last_wd}.rar"
+        try:
+            subprocess.run([
+                "rar",  # имя утилиты
+                "a",  # архивируем
+                "-ep1",  # не включаем внутри архива вложенности родительских директорий
+                "-r",  # рекурсивно
+                "-idq",  # без сообщений на вывод
+                str(rar_path),  # название архива
+                str(dir_path / "*")  # что архивируем
+            ], check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"RAR creation failed: {e}")
+        except FileNotFoundError:
+            print("'rar' command not found. Install RAR archiver first.")
+
+    def archieve_7zip(workdir):
+        sp = os.path.split(workdir)
+        last_wd = sp[-1]
+        with py7zr.SevenZipFile(f"{workdir}.7z", 'w') as archive:
+            archive.writeall(workdir, arcname=os.path.basename(last_wd))
+
+    do_archivation = {
+        ".zip": archieve_zip,
+        ".rar": archieve_rar,
+        ".7z": archieve_7zip
+    }
+
+    def __init__(self):
+        self.all_formats = file_formats | archieve_formats | set('')
         # банк слов из большого файла с английскими словами
         with open(wordlist_filename) as wb:
             self.word_bank = wb.read().splitlines()
 
-        # банворды для нейминга это уже существующие в директории названия, будет пополняться
-        existing_filenames = []
-        for _, _, files in os.walk(dir):
-            existing_filenames.extend(files)
-            break
-        self.banwords = set([filename for filename in existing_filenames if os.path.splitext(
-            filename)[1] in self.all_formats])
-
-    # как сделать уникальное название?
-    # в словарь здесь сохраняем имена файлов уже присутствующих в этой директории.
-    # когда генерим новое название, начинаем заменять рандомную букву пока не получим уникальное.
-    # добавляем во множество файлов.
     def _gen_wordlist(self, numwords):
         return choice(self.word_bank, numwords)
 
@@ -56,27 +90,38 @@ class DocumentGenerator:
         words_num = randint(1, self._max_paragraph_words)
         return ' '.join(self._gen_wordlist(words_num))
 
-    def _gen_title(self, idx, ext):
+    def _gen_title(self, idx, ext, banwords):
+        """
+        Заголовок файла генерим с оглядкой на банворды
+        После этого новый заголовок становится новым банвордом
+        """
         num_words_in_title = randint(1, self._max_words_name + 1)
         s = '_'.join(self._gen_wordlist(num_words_in_title)) + str(idx) + ext
-        while s in self.banwords:
+        while s in banwords:
             s = '_'.join(self._gen_wordlist(num_words_in_title)) + ext
-        self.banwords.add(s)
+        banwords.add(s)
         return s
 
-    def _generate_doc(self, num, ext):
+    def _generate_doc(self, num, ext, banwords, workdir):
+        """
+        Для простоты doc-файл это набор параграфов случайных слов
+        """
         for i in range(num):
-            doc = Document()
-            name = os.path.join(self.workdir, self._gen_title(i, ext))
+            doc = docx.Document()
+            name = os.path.join(workdir, self._gen_title(i, ext, banwords))
             num_pars = randint(1, self._max_paragraphs+1)
             for _ in range(num_pars):
                 doc.add_paragraph(self._gen_paragraph())
             doc.save(name)
 
-    def _generate_xls(self, num):
+    def _generate_xls(self, num, banwords, workdir):
+        """
+        Для работы со старыми файлами вписываем слова в каждую ячейку по отдельности
+        """
         ext = ".xls"
         for filenum in range(num):
-            name = os.path.join(self.workdir, self._gen_title(filenum, ext))
+            name = os.path.join(
+                workdir, self._gen_title(filenum, ext, banwords))
             rows_num = randint(1, self._max_rows)
             cols_num = randint(1, self._max_columns)
             wb = xlwt.Workbook()
@@ -86,10 +131,13 @@ class DocumentGenerator:
                     ws.write(i, j, self._gen_paragraph())
             wb.save(name)
 
-    def _generate_xlsx(self, num):
+    def _generate_xlsx(self, num, banwords, workdir):
+        """
+        Генерация xlsx файла через генерацию датафрейма
+        """
         ext = ".xlsx"
         for i in range(num):
-            name = os.path.join(self.workdir, self._gen_title(i, ext))
+            name = os.path.join(workdir, self._gen_title(i, ext, banwords))
             rows_num = randint(1, self._max_rows)
             cols_num = randint(1, self._max_columns)
             init_dict = {}
@@ -98,23 +146,67 @@ class DocumentGenerator:
             df = pd.DataFrame(init_dict)
             df.to_excel(name, index=False)
 
-    def _generate_pdf(self, num):
-        raise NotImplementedError  # TODO
+    def _generate_pdf(self, num, banwords, workdir):
+        ext = ".pdf"
+        for i in range(num):
+            pdf = Document()
+            page = Page()
+            pdf.add_page(page)
+            layout = SingleColumnLayout(page)
 
-    def generate(self, *, doc_num=1, docx_num=1, xls_num=1, xlsx_num=1,
-                 pdf_num=1, zip_num=1, rar_num=1, szip=1):
+            name = os.path.join(workdir, self._gen_title(i, ext, banwords))
+            num_pars = randint(1, self._max_paragraphs+1)
+            for _ in range(num_pars):
+                layout.add(Paragraph(self._gen_paragraph()))
+            with open(name, "wb") as pdf_file_handle:
+                PDF.dumps(pdf_file_handle, pdf)
+
+    def _generate_archieve(self, num, ext, banwords, workdir, *, doc_n, docx_n, xls_n, xlsx_n, pdf_n):
+        """
+        Создадим папку, внутри которой сгенерим еще файлы
+        Потом сожмем её в архив
+        """
+        for i in range(num):
+            name = os.path.join(workdir, self._gen_title(i, '', banwords))
+            Path(name).mkdir()
+            self.generate(name, doc_num=docx_n, docx_num=docx_n, xls_num=xls_n,
+                          xlsx_num=xlsx_n, pdf_num=pdf_n, szip_num=0, zip_num=0, rar_num=0)
+            self.do_archivation[ext](name)
+            rmtree(name)
+
+    def generate(self, workdir, *, doc_num=_max_doc_num, docx_num=_max_docx_num, xls_num=_max_xls_num, xlsx_num=_max_xlsx_num,
+                 pdf_num=_max_pdf_num, zip_num=_max_zip_num, rar_num=_max_rar_num, szip_num=_max_7zip_num):
+
+        # банворды для нейминга это уже существующие в директории названия, будет пополняться
         existing_filenames = []
-        for _, _, filenames in os.walk(self.workdir):
+        for _, dirs, files in os.walk(workdir):
+            existing_filenames.extend(files)
+            existing_filenames.extend(dirs)
+            break
+        banwords = set([filename for filename in existing_filenames if os.path.splitext(
+            filename)[1] in self.all_formats])
+
+        existing_filenames = []
+        for _, _, filenames in os.walk(workdir):
             existing_filenames.extend(filenames)
             break
         existing_filenames = set(existing_filenames)
-        self._generate_doc(doc_num, ".doc")
-        self._generate_doc(docx_num, ".docx")
-        self._generate_xlsx(xlsx_num)
-        self._generate_xls(xls_num)
 
-        # self._generate_pdf(pdf_num)
-        # TODO: generate archieves with recursion possibility
+        self._generate_doc(randint(1, doc_num+1), ".doc", banwords, workdir)
+        self._generate_doc(randint(1, docx_num+1), ".docx", banwords, workdir)
+        self._generate_xlsx(randint(1, xlsx_num+1), banwords, workdir)
+        self._generate_xls(randint(1, xls_num+1), banwords, workdir)
+        self._generate_pdf(randint(1, pdf_num+1), banwords, workdir)
+        if rar_num > 0:
+            self._generate_archieve(randint(1, szip_num+1),
+                                    ".rar", banwords, workdir, doc_n=doc_num, docx_n=docx_num, xls_n=xls_num, xlsx_n=xlsx_num, pdf_n=pdf_num)
+
+        if szip_num > 0:
+            self._generate_archieve(randint(1, szip_num+1),
+                                    ".7z", banwords, workdir, doc_n=doc_num, docx_n=docx_num, xls_n=xls_num, xlsx_n=xlsx_num, pdf_n=pdf_num)
+        if zip_num > 0:
+            self._generate_archieve(randint(1, szip_num+1),
+                                    ".zip", banwords, workdir, doc_n=doc_num, docx_n=docx_num, xls_n=xls_num, xlsx_n=xlsx_num, pdf_n=pdf_num)
 
 
 def main():
@@ -122,19 +214,9 @@ def main():
         description='Generate many files in dir')
     arg_parser.add_argument('dir', type=str, help='Input directory')
     args = arg_parser.parse_args()
-    gen = DocumentGenerator(args.dir)
-    gen.generate()
-    # print(args.dir)
+    gen = DocumentGenerator()
+    gen.generate(args.dir)
 
-# doc, docx, xls, xlsx, pdf, zip, rar, 7z
-# внутри архива может быть другие архивы, но допускаем вложенность не более 3, чтобы не уходить глубоко слишком
-
-
-"""
-как будем генерить файлы:
-doc, docx: генерим случайное количество параграфов, для каждого - случайное количество слов
-xls, xlsx: случайное количество колонок, случайные названия колонок, случайно заполняем колонки
-"""
 
 if __name__ == "__main__":
     main()
