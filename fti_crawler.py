@@ -3,6 +3,7 @@ import docx
 import patoolib
 import pandas as pd
 import os
+import xlrd
 
 from constants import file_formats, archieve_formats
 
@@ -13,22 +14,29 @@ class DocumentParser:
     # def normal_document_entry(filename, )
 
     def read_doc(filename, df):
-        print(f"Processing {filename}...")
+
         doc = docx.Document(filename)
         text = [p.text for p in doc.paragraphs]
         df["text"].append('\n'.join(text))
         # raise NotImplementedError
 
     def read_xls(filename, df):
-        ...
-        raise NotImplementedError
+        workbook = xlrd.open_workbook(filename)
+        sheets_data = []
+        for sheet in workbook.sheets():
+            sheets_data.append('\n'.join(" ".join(sheet.row_values(rownum))
+                               for rownum in range(sheet.nrows)))
+
+        df['text'].append("\n".join(sheets_data))
 
     def read_xlsx(filename, df):
-        ...
-        raise NotImplementedError
+        print(f"Processing {filename}...")
+        content = pd.read_excel(filename)
+        df['text'].append(" ".join(content.columns) + "\n" + "\n".join(' '.join(rowtup)
+                          for rowtup in content.itertuples(index=False, name=None)))
 
     def read_pdf(filename, df):
-        ...
+
         raise NotImplementedError
 
     def read_archieve(df):
@@ -66,7 +74,7 @@ class DocumentParser:
                     # delete folder
                     ...
                 else:
-                    if ext in {'.docx', '.doc'}:  # TODO: убрать это
+                    if ext in {'.docx', '.doc', ".xls", ".xlsx"}:  # TODO: убрать это
                         df_dict["name"].append(filename)
                         df_dict["extension"].append(ext)
                         df_dict["is_archieved"].append(int(is_archieve))

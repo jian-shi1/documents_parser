@@ -16,8 +16,9 @@ import zipfile
 class DocumentGenerator:
     # Лимиты на наполнение файлов
     _max_words_name = 3
-    _max_paragraphs = 100
-    _max_paragraph_words = 500
+    _max_paragraphs = 500
+    _max_paragraph_words = 100
+    _max_cell_words = 10
     _max_columns = 10
     _max_rows = 100
     # Лимиты на количество файлов
@@ -84,8 +85,10 @@ class DocumentGenerator:
     def _gen_wordlist(self, numwords):
         return choice(self.word_bank, numwords)
 
-    def _gen_paragraph(self):
-        words_num = randint(1, self._max_paragraph_words)
+    def _gen_paragraph(self, is_cell=False):
+        ic = int(is_cell)
+        words_num = randint(1, ic * self._max_cell_words +
+                            (1-ic) * self._max_paragraph_words)
         return ' '.join(self._gen_wordlist(words_num))
 
     def _gen_title(self, idx, ext, banwords):
@@ -126,7 +129,7 @@ class DocumentGenerator:
             ws = wb.add_sheet('Sheet 1')
             for i in range(rows_num):
                 for j in range(cols_num):
-                    ws.write(i, j, self._gen_paragraph())
+                    ws.write(i, j, self._gen_paragraph(True))
             wb.save(name)
 
     def _generate_xlsx(self, num, banwords, workdir):
