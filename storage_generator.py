@@ -1,18 +1,16 @@
-import os
-import sys
 import argparse
+from borb.pdf import Document, Page, Paragraph, SingleColumnLayout, PDF
 from constants import file_formats, archieve_formats, wordlist_filename
 import docx
 from numpy.random import choice, randint
+import os
 import pandas as pd
-from string import ascii_uppercase
-import xlwt
-from borb.pdf import Document, Page, Paragraph, SingleColumnLayout, PDF
-import py7zr
 from pathlib import Path
-import zipfile
+import py7zr
 from shutil import rmtree
 import subprocess
+import xlwt
+import zipfile
 
 
 class DocumentGenerator:
@@ -78,7 +76,7 @@ class DocumentGenerator:
     }
 
     def __init__(self):
-        self.all_formats = file_formats | archieve_formats | set('')
+        self.all_formats = file_formats | archieve_formats
         # банк слов из большого файла с английскими словами
         with open(wordlist_filename) as wb:
             self.word_bank = wb.read().splitlines()
