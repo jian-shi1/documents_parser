@@ -4,7 +4,7 @@
 Предполагается, что к моменту запуска скрипта эта база уже будет существовать. Выполним команду для создания базы sqlite, в которую будет вестись запись:
 
 ```
-TBA
+sqlite3 fti_storage.db ".read init.sql"
 ```
 
 ## Тестовая генерация файлов
@@ -22,7 +22,7 @@ python storage_generator.py <dirname>
 
 В аргументах указать директорию, в которой лежат требуемые файлы, и файл csv, в который будет записан результат краулинга
 ```py
-$ python fti_crawler.py <path_to_dir> <path_to_final_csv_file>
+python fti_crawler.py <path_to_dir> <path_to_final_csv_file>
 ```
 
 Типы файлов, по которым парсинг осуществляется: ```doc, docx, xls, xlsx, pdf```
