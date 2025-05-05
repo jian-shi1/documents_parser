@@ -1,24 +1,21 @@
 import argparse
-import docx
-import patoolib
-import pandas as pd
-import os
-import xlrd
-
 from constants import file_formats, archieve_formats
+import docx
+import os
+import pandas as pd
+from patoolib import extract_archive
+from pypdf import PdfReader
+from shutil import rmtree
+import xlrd
 
 
 class DocumentParser:
     all_formats = set()
 
-    # def normal_document_entry(filename, )
-
     def read_doc(filename, df):
-
         doc = docx.Document(filename)
         text = [p.text for p in doc.paragraphs]
         df["text"].append('\n'.join(text))
-        # raise NotImplementedError
 
     def read_xls(filename, df):
         workbook = xlrd.open_workbook(filename)
@@ -26,7 +23,6 @@ class DocumentParser:
         for sheet in workbook.sheets():
             sheets_data.append('\n'.join(" ".join(sheet.row_values(rownum))
                                for rownum in range(sheet.nrows)))
-
         df['text'].append("\n".join(sheets_data))
 
     def read_xlsx(filename, df):
@@ -36,13 +32,9 @@ class DocumentParser:
                           for rowtup in content.itertuples(index=False, name=None)))
 
     def read_pdf(filename, df):
-
-        raise NotImplementedError
-
-    def read_archieve(df):
-        ...
-        # extract archieve
-        # raise NotImplementedError
+        reader = PdfReader(filename)
+        df['text'].append('\n'.join(page.extract_text()
+                          for page in reader.pages))
 
     def __init__(self):
         self.all_formats = file_formats | archieve_formats
@@ -58,28 +50,28 @@ class DocumentParser:
     }
 
     def parse(self, workdir, df_dict, is_archieve=False, archieve_name=''):
-        # os walk:
         existing_filenames = []
         for cur_dir, dirs, files in os.walk(workdir):
-            # print(cur_dir, dirs, files)
             for file in files:
                 full_processed_file = os.path.join(
                     os.path.abspath(cur_dir), file)
                 filename, ext = os.path.splitext(full_processed_file)
-                # print(filename, ext)
                 if ext in archieve_formats:
-                    print(f"Archieve {filename}, skip for now.")
                     # unzip
+                    folder = os.path.join(os.path.dirname(
+                        full_processed_file), filename)
+                    extract_archive(full_processed_file,
+                                    outdir=folder, verbosity=0)
                     # process a folder recursively
+                    self.parse(folder, df_dict, True, full_processed_file)
                     # delete folder
-                    ...
+                    rmtree(folder)
                 else:
-                    if ext in {'.docx', '.doc', ".xls", ".xlsx"}:  # TODO: убрать это
-                        df_dict["name"].append(filename)
-                        df_dict["extension"].append(ext)
-                        df_dict["is_archieved"].append(int(is_archieve))
-                        df_dict["archieve_name"].append(archieve_name)
-                        self.process_file[ext](full_processed_file, df_dict)
+                    df_dict["name"].append(filename)
+                    df_dict["extension"].append(ext)
+                    df_dict["is_archieved"].append(int(is_archieve))
+                    df_dict["archieve_name"].append(archieve_name)
+                    self.process_file[ext](full_processed_file, df_dict)
 
         # meet an archieve - work it as dir
         # recursively go to every dir
