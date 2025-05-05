@@ -1,5 +1,5 @@
 import argparse
-from constants import file_formats, archieve_formats
+from constants import file_formats, archieve_formats, db_name
 import docx
 import os
 import pandas as pd
@@ -7,6 +7,7 @@ from patoolib import extract_archive
 from pypdf import PdfReader
 from shutil import rmtree
 import xlrd
+import sqlite3
 
 
 class DocumentParser:
@@ -26,7 +27,6 @@ class DocumentParser:
         df['text'].append("\n".join(sheets_data))
 
     def read_xlsx(filename, df):
-        print(f"Processing {filename}...")
         content = pd.read_excel(filename)
         df['text'].append(" ".join(content.columns) + "\n" + "\n".join(' '.join(rowtup)
                           for rowtup in content.itertuples(index=False, name=None)))
@@ -49,7 +49,7 @@ class DocumentParser:
         ".pdf": read_pdf
     }
 
-    def parse(self, workdir, df_dict, is_archieve=False, archieve_name=''):
+    def parse(self, workdir, df_dict, is_archieve=False, archive_name=''):
         existing_filenames = []
         for cur_dir, dirs, files in os.walk(workdir):
             for file in files:
@@ -69,15 +69,10 @@ class DocumentParser:
                 else:
                     df_dict["name"].append(filename)
                     df_dict["extension"].append(ext)
-                    df_dict["is_archieved"].append(int(is_archieve))
-                    df_dict["archieve_name"].append(archieve_name)
+                    df_dict["is_archived"].append(int(is_archieve))
+                    df_dict["archive_name"].append(archive_name)
+                    df_dict["filepath"].append(str(full_processed_file))
                     self.process_file[ext](full_processed_file, df_dict)
-
-        # meet an archieve - work it as dir
-        # recursively go to every dir
-        # to_csv
-        # TODO: insert into sql
-        # raise NotImplementedError
 
 
 def main():
@@ -91,18 +86,28 @@ def main():
         "name": [],
         "text": [],
         "extension": [],
-        "is_archieved": [],
-        "archieve_name": [],
+        "filepath": [],
+        "is_archived": [],
+        "archive_name": [],
     }
     document_parser.parse(args.dir, df, False)
-    # print(df)
-    # for k, v in df.items():
-    #     print(k, len(v))
     df = pd.DataFrame(df)
-    # df.astype({"is_archieved": 'int32'}, copy=False)
-    # print(df.head())
     df.to_csv(args.csv, index=False)
     print(f"Files are processed and uploaded to {args.csv}")
+
+    # наша FTI-таблица виртуальная, так что to_sql сразу не сработает
+    # переносить будем через временную таблицу
+    conn = sqlite3.connect(db_name)
+    df.to_sql("tmp", conn, if_exists='replace', index=False)
+    conn.execute("""
+        INSERT INTO documents
+        SELECT name, text, extension, filepath, is_archived, archive_name 
+        FROM tmp;
+    """)
+    conn.execute("DROP TABLE tmp")
+    conn.commit()
+    conn.close()
+    print("Data is inserted to SQL")
 
 
 if __name__ == "__main__":
